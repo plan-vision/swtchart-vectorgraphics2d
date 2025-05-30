@@ -28,6 +28,8 @@ import java.awt.geom.PathIterator;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
+import java.awt.AlphaComposite;
+import java.awt.Composite;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -341,9 +343,17 @@ class SVGDocument extends SizedDocument {
 		Color color = getCurrentState().getColor();
 		String colorOutput = getOutput(color);
 		double opacity = color.getAlpha() / 255.0;
+
+		// APPLY APPLY ALPHA COMPOSITE
+		Composite c = getCurrentState().getComposite();
+		if (c instanceof AlphaComposite) {
+			AlphaComposite a = (AlphaComposite)c;
+			opacity*=a.getAlpha();
+		}	
+
 		if(filled) {
 			appendStyle(style, "fill", colorOutput);
-			if(color.getAlpha() < 255) {
+			if (opacity < 1) {
 				appendStyle(style, "fill-opacity", opacity);
 			}
 			if(!fillRullNonZero) {
@@ -355,7 +365,7 @@ class SVGDocument extends SizedDocument {
 		}
 		if(!filled) {
 			appendStyle(style, "stroke", colorOutput);
-			if(color.getAlpha() < 255) {
+			if (opacity < 1) {
 				appendStyle(style, "stroke-opacity", opacity);
 			}
 			Stroke stroke = getCurrentState().getStroke();
