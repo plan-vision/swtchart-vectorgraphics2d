@@ -319,7 +319,8 @@ class SVGDocument extends SizedDocument {
             //AffineTransform at = cs.getTransform();
             //at.translate(c.x,c.y);
             //grp.setAttribute("transform", getOutput(at));
-            grp.setAttribute("transform","translate("+c.x+","+c.y+")");       
+            if (c.x != 0.0 || c.y != 0.0)
+                grp.setAttribute("transform","translate("+c.x+","+c.y+")");       
             addToGroup(grp);
             float fontSize = f.getSize2D();
 		    for (int i=0;i<vec.getNumGlyphs();i++) 
