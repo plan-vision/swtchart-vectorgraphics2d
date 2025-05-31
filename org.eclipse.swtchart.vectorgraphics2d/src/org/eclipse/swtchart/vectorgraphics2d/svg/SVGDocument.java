@@ -256,6 +256,16 @@ class SVGDocument extends SizedDocument {
 		}
 	}
 
+	// like toString() but without font size!
+	private String getFontKey(Font f) {
+	    String strStyle;
+	    if (f.isBold()) 
+	        strStyle = f.isItalic() ? "bi" : "b";
+	    else 
+	        strStyle = f.isItalic() ? "i" : "p";
+	    return f.getFamily()+"|"+f.getName()+"|"+strStyle;
+	}
+	
 	public void handle(Command<?> command) {
 
 		if(command instanceof Group) {
@@ -295,17 +305,15 @@ class SVGDocument extends SizedDocument {
 		    DrawGlyphVectorCommand c = (DrawGlyphVectorCommand)command;
 		    GlyphVector vec = c.getValue();
 		    Font f = vec.getFont();
-		    GraphicsState cs = getCurrentState();
+		    //GraphicsState cs = getCurrentState();
             String style = getStyle(true);
-            //-------------------------------------------------------
-            String fkey = f.toString();
+            String fkey = getFontKey(f);
 		    HashMap<Integer,Integer> fcache = glypths.get(fkey); // .toString() needed?
 		    if (fcache == null) {
 		        fcache = new HashMap();
 		        glypths.put(fkey, fcache);
 		    }
 		    //--------------------------------------------------------------------------------------     
-  
             Element grp = doc.createElement("g");
             grp.setAttribute("style", style);
             //AffineTransform at = cs.getTransform();
@@ -313,7 +321,7 @@ class SVGDocument extends SizedDocument {
             //grp.setAttribute("transform", getOutput(at));
             grp.setAttribute("transform","translate("+c.x+","+c.y+")");       
             addToGroup(grp);
-            
+            float fontSize = f.getSize2D();
 		    for (int i=0;i<vec.getNumGlyphs();i++) 
 		    {
 		        Point2D pos = vec.getGlyphPosition(i);
@@ -328,16 +336,26 @@ class SVGDocument extends SizedDocument {
 		            id = gseq++;
 		            Element elem = doc.createElement("path");
 		            elem.setAttribute("id", "G"+id);
-                    String d = getOutput(vec.getGlyphOutline(i,-(float)pos.getX(),-(float)pos.getY())); 
+		            //--------------------------------------------------------------------
+		            // NORMALIZE FONT SIZE to 1
+                    //--------------------------------------------------------------------
+		            Shape outline = vec.getGlyphOutline(i,-(float)pos.getX(),-(float)pos.getY());
+		            double scale = 1.0 / fontSize;
+		            AffineTransform toUnitSize = AffineTransform.getScaleInstance(scale, scale);
+		            Shape scaledOutline = toUnitSize.createTransformedShape(outline);
+                    String d = getOutput(scaledOutline);
+                    //--------------------------------------------------------------------
 		            elem.setAttribute("d", d);
 		            defs.appendChild(elem);
-		            fcache.put(code, id);
+		            fcache.put(code, id); 
 		        }
 		        // USE 
                 Element elem = doc.createElement("use");
                 elem.setAttribute("href", "#G"+id);
                 if (pos.getX() != 0.0 || pos.getY() != 0.0)
-                    elem.setAttribute("transform","translate("+pos.getX()+","+pos.getY()+")");       
+                    elem.setAttribute("transform","translate("+pos.getX()+","+pos.getY()+") scale("+fontSize+")");       
+                else if (fontSize > 1.0f)
+                    elem.setAttribute("transform","scale("+fontSize+")");       
                 grp.appendChild(elem);
 		    }
 		}
