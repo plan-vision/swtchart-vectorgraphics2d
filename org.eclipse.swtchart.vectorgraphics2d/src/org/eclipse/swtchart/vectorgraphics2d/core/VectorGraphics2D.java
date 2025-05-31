@@ -50,6 +50,7 @@ import java.awt.image.ImageObserver;
 import java.awt.image.RenderedImage;
 import java.awt.image.renderable.RenderableImage;
 import java.text.AttributedCharacterIterator;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Map.Entry;
 
@@ -58,6 +59,7 @@ import org.eclipse.swtchart.vectorgraphics2d.intermediate.MutableCommandSequence
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.Command;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.CreateCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DisposeCommand;
+import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawGlyphVectorCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawImageCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawShapeCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawStringCommand;
@@ -99,7 +101,16 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 	/** Flag that tells whether this graphics object has been disposed. */
 	private boolean disposed;
 	private GraphicsState state;
-
+	//----------------------------------------------------------------------------------------------------------
+	private boolean isForceClipShape;              // do not forward clip info, clip shapes during before write
+	private boolean isTrackGlypths;                // on fill event provide glypth details
+    //----------------------------------------------------------------------------------------------------------
+	public void setIsForceClipShape(boolean val) {
+	    isForceClipShape=val;
+	}
+	public void setIsTrackGlypths(boolean val) {
+	    isTrackGlypths=val;
+	}
 	public VectorGraphics2D() {
 
 		this.commands = new MutableCommandSequence();
@@ -178,13 +189,22 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 		if(isDisposed() || s == null) {
 			return;
 		}
+        if (isForceClipShape)
+            s=clipShape(s);
 		emit(new DrawShapeCommand(s));
 	}
 
 	@Override
 	public void drawGlyphVector(GlyphVector g, float x, float y) {
-		Shape s = g.getOutline(x, y);
-		fill(s);// PATCH : changed from draw() to fill() 
+	    
+	    if (!isTrackGlypths) {
+	        // common
+	        Shape s = g.getOutline(x, y);
+	        fill(s);// PATCH : changed from draw() to fill() 
+	    } else {
+	        emit(new DrawGlyphVectorCommand(g,x,y));
+	    }
+	    
 	}
 
 	@Override
@@ -281,10 +301,11 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 
 	@Override
 	public void fill(Shape s) {
-
 		if(isDisposed() || s == null) {
 			return;
 		}
+		if (isForceClipShape)
+		    s=clipShape(s);
 		emit(new FillShapeCommand(s));
 	}
 
@@ -768,7 +789,8 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 		if(isDisposed()) {
 			return;
 		}
-		emit(new SetClipCommand(clip));
+		if (!isForceClipShape)
+		    emit(new SetClipCommand(clip));
 		state.setClip(clip);
 	}
 
@@ -821,7 +843,6 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 	}
 
 	private void emit(Command<?> command) {
-
 		commands.add(command);
 	}
 
@@ -836,7 +857,13 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 	 * @return Sequence of commands since.
 	 */
 	public CommandSequence getCommands() {
-
 		return commands;
+	}
+	
+	private Shape clipShape(Shape s) {
+	   Shape clip = getClip();
+	    if (clip == null || clip == GraphicsState.DEFAULT_CLIP)
+	        return s;	    
+	    return intersectShapes(clip, s);
 	}
 }

@@ -35,9 +35,15 @@ public class SVGProcessor implements Processor {
 
 	@Override
 	public Document getDocument(CommandSequence commands, PageSize pageSize) {
-
 		FillPaintedShapeAsImageFilter shapesAsImages = new FillPaintedShapeAsImageFilter(commands);
 		CommandSequence filtered = new StateChangeGroupingFilter(shapesAsImages);
-		return new SVGDocument(filtered, pageSize);
+		return new SVGDocument(filtered, pageSize,false);
 	}
+
+    public Document getDocumentNoClip(CommandSequence commands, PageSize pageSize) {
+        FillPaintedShapeAsImageFilter shapesAsImages = new FillPaintedShapeAsImageFilter(commands);
+        CommandSequence filtered = new StateChangeGroupingFilter(shapesAsImages);
+        return new SVGDocument(filtered, pageSize,true);
+    }
+
 }

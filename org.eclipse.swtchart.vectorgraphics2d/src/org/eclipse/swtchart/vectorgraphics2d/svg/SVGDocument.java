@@ -20,11 +20,13 @@ import java.awt.Image;
 import java.awt.Shape;
 import java.awt.Stroke;
 import java.awt.color.ColorSpace;
+import java.awt.font.GlyphVector;
 import java.awt.geom.AffineTransform;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.PathIterator;
+import java.awt.geom.Point2D;
 import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
@@ -58,6 +60,7 @@ import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.AffineTransfo
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.Command;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.CreateCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DisposeCommand;
+import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawGlyphVectorCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawImageCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawShapeCommand;
 import org.eclipse.swtchart.vectorgraphics2d.intermediate.commands.DrawStringCommand;
@@ -101,18 +104,34 @@ class SVGDocument extends SizedDocument {
 	private final Stack<GraphicsState> states;
 	private final Document doc;
 	private final Element root;
+    private final boolean isWithoutClip;            // FEAT : do not use SVG clip, use internal normalization (clip) instead 
 	private Element group;
 	private boolean groupAdded;
 	private Element defs;
+	
 	private final Map<Integer, Element> clippingPathElements;
 	/** Mapping of stroke endcap values from Java to SVG. */
 	private static final Map<Integer, String> STROKE_ENDCAPS = DataUtils.map(new Integer[]{BasicStroke.CAP_BUTT, BasicStroke.CAP_ROUND, BasicStroke.CAP_SQUARE}, new String[]{"butt", "round", "square"});
 	/** Mapping of line join values for path drawing from Java to SVG. */
 	private static final Map<Integer, String> STROKE_LINEJOIN = DataUtils.map(new Integer[]{BasicStroke.JOIN_MITER, BasicStroke.JOIN_ROUND, BasicStroke.JOIN_BEVEL}, new String[]{"miter", "round", "bevel"});
 
-	public SVGDocument(CommandSequence commands, PageSize pageSize) {
+	public class GlyphEntry {
+	    public final int id;
+	    public final Shape shape;
+	    public GlyphEntry(int id,Shape shape) {
+	        this.id=id;
+	        this.shape=shape;
+	    }
+	}
+    // Only if VectorGraphics2D.isTrackGlypths is true 
+    private Map<Object,HashMap<Integer,Integer>> glypths=new HashMap();
+    private int gseq=0;
 
+    
+    
+    public SVGDocument(CommandSequence commands, PageSize pageSize,boolean isWithoutClip) {
 		super(pageSize, true);
+		this.isWithoutClip=isWithoutClip;
 		states = new Stack<>();
 		states.push(new GraphicsState());
 		clippingPathElements = new HashMap<>();
@@ -193,7 +212,7 @@ class SVGDocument extends SizedDocument {
 		group = doc.createElement("g");
 		groupAdded = false;
 		Shape clip = getCurrentState().getClip();
-		if(clip != GraphicsState.DEFAULT_CLIP) {
+		if(clip != GraphicsState.DEFAULT_CLIP && !isWithoutClip) {
 			Element clipElem = getClipElement(clip);
 			String ref = "url(#" + clipElem.getAttribute("id") + ")";
 			group.setAttribute("clip-path", ref);
@@ -270,6 +289,57 @@ class SVGDocument extends SizedDocument {
 				e.setAttribute("style", getStyle(true));
 			}
 			addToGroup(e);
+		} else if (command instanceof DrawGlyphVectorCommand) {
+	        //--------------------------------------------------------------------------------------     
+		    // USE GLYPHCACHE, extract unique symbols and reuse them 
+		    DrawGlyphVectorCommand c = (DrawGlyphVectorCommand)command;
+		    GlyphVector vec = c.getValue();
+		    Font f = vec.getFont();
+		    GraphicsState cs = getCurrentState();
+            String style = getStyle(true);
+            //-------------------------------------------------------
+            String fkey = f.toString();
+		    HashMap<Integer,Integer> fcache = glypths.get(fkey); // .toString() needed?
+		    if (fcache == null) {
+		        fcache = new HashMap();
+		        glypths.put(fkey, fcache);
+		    }
+		    //--------------------------------------------------------------------------------------     
+  
+            Element grp = doc.createElement("g");
+            grp.setAttribute("style", style);
+            //AffineTransform at = cs.getTransform();
+            //at.translate(c.x,c.y);
+            //grp.setAttribute("transform", getOutput(at));
+            grp.setAttribute("transform","translate("+c.x+","+c.y+")");       
+            addToGroup(grp);
+            
+		    for (int i=0;i<vec.getNumGlyphs();i++) 
+		    {
+		        Point2D pos = vec.getGlyphPosition(i);
+		        int code = vec.getGlyphCode(i);
+		        Integer id = fcache.get(code);
+		        if (id == null) {
+		            if(defs == null) {
+		                defs = doc.createElement("defs");
+		                root.insertBefore(defs, root.getFirstChild());
+		            }
+		            // DEFS PATH
+		            id = gseq++;
+		            Element elem = doc.createElement("path");
+		            elem.setAttribute("id", "G"+id);
+                    String d = getOutput(vec.getGlyphOutline(i,-(float)pos.getX(),-(float)pos.getY())); 
+		            elem.setAttribute("d", d);
+		            defs.appendChild(elem);
+		            fcache.put(code, id);
+		        }
+		        // USE 
+                Element elem = doc.createElement("use");
+                elem.setAttribute("href", "#G"+id);
+                if (pos.getX() != 0.0 || pos.getY() != 0.0)
+                    elem.setAttribute("transform","translate("+pos.getX()+","+pos.getY()+")");       
+                grp.appendChild(elem);
+		    }
 		}
 	}
 
@@ -354,7 +424,7 @@ class SVGDocument extends SizedDocument {
 		if(filled) {
 			appendStyle(style, "fill", colorOutput);
 			if (opacity < 1) {
-				appendStyle(style, "fill-opacity", opacity);
+				appendStyle(style, "fill-opacity", Math.round(opacity*1000)/1000.0);
 			}
 			if(!fillRullNonZero) {
 				// nonzero is the default; only need to set the style rule for non-default evenodd winding rule.
@@ -366,7 +436,7 @@ class SVGDocument extends SizedDocument {
 		if(!filled) {
 			appendStyle(style, "stroke", colorOutput);
 			if (opacity < 1) {
-				appendStyle(style, "stroke-opacity", opacity);
+				appendStyle(style, "stroke-opacity", Math.round(opacity*1000)/1000.0);
 			}
 			Stroke stroke = getCurrentState().getStroke();
 			if(stroke instanceof BasicStroke) {
