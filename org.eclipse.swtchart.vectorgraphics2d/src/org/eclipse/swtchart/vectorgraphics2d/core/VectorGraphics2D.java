@@ -224,15 +224,16 @@ public class VectorGraphics2D extends Graphics2D implements Cloneable {
 	 * @return Image with transformed content
 	 */
 	private BufferedImage getTransformedImage(Image image, AffineTransform xform) {
-
-		Integer interpolationType = (Integer)getRenderingHint(RenderingHints.KEY_INTERPOLATION);
+		/*Integer interpolationType = (Integer)getRenderingHint(RenderingHints.KEY_INTERPOLATION);
 		if(RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR.equals(interpolationType)) {
 			interpolationType = AffineTransformOp.TYPE_NEAREST_NEIGHBOR;
 		} else if(RenderingHints.VALUE_INTERPOLATION_BILINEAR.equals(interpolationType)) {
 			interpolationType = AffineTransformOp.TYPE_BILINEAR;
 		} else {
 			interpolationType = AffineTransformOp.TYPE_BICUBIC;
-		}
+		}*/
+	    // JDK API CHANGE > not integer, object
+	    int interpolationType = AffineTransformOp.TYPE_BILINEAR;
 		AffineTransformOp op = new AffineTransformOp(xform, interpolationType);
 		BufferedImage bufferedImage = GraphicsUtils.toBufferedImage(image);
 		return op.filter(bufferedImage, null);
